@@ -1,0 +1,43 @@
+[
+  {
+    "id": "rem-01",
+    "phrasing": "Remind me tomorrow at 7pm to continue the coding agent thing.",
+    "reference_datetime": "2026-08-13T09:00:00-07:00",
+    "timezone": "America/Los_Angeles",
+    "expected_resolved_datetime": "2026-08-14T19:00:00-07:00",
+    "expected_title": "Continue the coding agent thing"
+  },
+  {
+    "id": "rem-02",
+    "phrasing": "Remind me in 30 minutes to check the Bedrock quota.",
+    "reference_datetime": "2026-08-13T09:00:00-07:00",
+    "timezone": "America/Los_Angeles",
+    "expected_resolved_datetime": "2026-08-13T09:30:00-07:00",
+    "expected_title": "Check the Bedrock quota"
+  },
+  {
+    "id": "rem-03",
+    "phrasing": "Remind me next Monday morning to demo this to the team.",
+    "reference_datetime": "2026-08-13T09:00:00-07:00",
+    "timezone": "America/Los_Angeles",
+    "expected_resolved_datetime": "2026-08-17T09:00:00-07:00",
+    "expected_title": "Demo this to the team"
+  },
+  {
+    "id": "rem-04",
+    "phrasing": "Remind me at 9am to finish the recall synthesis prompt.",
+    "reference_datetime": "2026-08-13T09:00:00-07:00",
+    "timezone": "America/Los_Angeles",
+    "expected_resolved_datetime": "2026-08-14T09:00:00-07:00",
+    "expected_title": "Finish the recall synthesis prompt",
+    "notes": "9am has already passed today at the reference time, so it must resolve to tomorrow, not today"
+  },
+  {
+    "id": "rem-05",
+    "phrasing": "Remind me in an hour and a half to check on the dedupe threshold tuning.",
+    "reference_datetime": "2026-08-13T09:00:00-07:00",
+    "timezone": "America/Los_Angeles",
+    "expected_resolved_datetime": "2026-08-13T10:30:00-07:00",
+    "expected_title": "Check on the dedupe threshold tuning"
+  }
+]

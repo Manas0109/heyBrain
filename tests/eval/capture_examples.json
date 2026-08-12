@@ -1,0 +1,72 @@
+[
+  {
+    "id": "cap-01",
+    "input": "I want to learn Kafka for system design interview prep.",
+    "expected_intent": "capture",
+    "expected_memory": "User wants to learn Kafka as part of system design interview prep.",
+    "expected_memory_type": "goal"
+  },
+  {
+    "id": "cap-02",
+    "input": "I should probably study Kafka before interviews.",
+    "expected_intent": "capture",
+    "expected_memory": "User wants to learn Kafka as part of system design interview prep.",
+    "expected_memory_type": "goal"
+  },
+  {
+    "id": "cap-03",
+    "input": "I prefer backend work over frontend, it's just more interesting to me.",
+    "expected_intent": "capture",
+    "expected_memory": "User prefers backend development over frontend development.",
+    "expected_memory_type": "preference"
+  },
+  {
+    "id": "cap-04",
+    "input": "Thinking the second brain app should use Bedrock instead of OpenAI, keeps everything in one AWS account.",
+    "expected_intent": "capture",
+    "expected_memory": "User decided the second-brain app should use Amazon Bedrock instead of OpenAI to keep everything in one AWS account.",
+    "expected_memory_type": "decision"
+  },
+  {
+    "id": "cap-05",
+    "input": "I'm tired today.",
+    "expected_intent": "capture",
+    "expected_memory": null,
+    "expected_memory_type": null
+  },
+  {
+    "id": "cap-06",
+    "input": "Idea: a CLI that turns spoken thoughts into searchable memories, kind of like a second brain.",
+    "expected_intent": "capture",
+    "expected_memory": "User has an idea for a CLI that turns spoken thoughts into searchable memories, like a second brain.",
+    "expected_memory_type": "idea"
+  },
+  {
+    "id": "cap-07",
+    "input": "My plan for tomorrow is to finish the Chroma integration before lunch and then start on retrieval ranking.",
+    "expected_intent": "capture",
+    "expected_memory": "User plans to finish the Chroma integration before lunch tomorrow, then start on retrieval ranking.",
+    "expected_memory_type": "plan"
+  },
+  {
+    "id": "cap-08",
+    "input": "Fact: our demo machine only has 16GB of RAM, so the whisper model needs to stay small.",
+    "expected_intent": "capture",
+    "expected_memory": "The demo machine has 16GB of RAM, which constrains the Whisper model to a small size.",
+    "expected_memory_type": "fact"
+  },
+  {
+    "id": "cap-09",
+    "input": "lol ok anyway",
+    "expected_intent": "capture",
+    "expected_memory": null,
+    "expected_memory_type": null
+  },
+  {
+    "id": "cap-10",
+    "input": "I've decided to timebox this hackathon to one week and cut reminders first if we run out of time.",
+    "expected_intent": "capture",
+    "expected_memory": "User decided to timebox the hackathon to one week and cut reminders first if time runs short.",
+    "expected_memory_type": "decision"
+  }
+]

@@ -1,0 +1,62 @@
+[
+  {
+    "id": "rec-01",
+    "query": "what was I thinking about coding agents?",
+    "expected_memory_content": "User has an idea for a CLI that turns spoken thoughts into searchable memories, like a second brain.",
+    "notes": "wording does not overlap 'CLI', 'searchable memories', or 'second brain'"
+  },
+  {
+    "id": "rec-02",
+    "query": "did I say anything about interview prep?",
+    "expected_memory_content": "User wants to learn Kafka as part of system design interview prep.",
+    "notes": "direct topical overlap on 'interview prep'"
+  },
+  {
+    "id": "rec-03",
+    "query": "do I like backend or frontend more?",
+    "expected_memory_content": "User prefers backend development over frontend development.",
+    "notes": "paraphrase of a preference statement"
+  },
+  {
+    "id": "rec-04",
+    "query": "why did we pick Bedrock over OpenAI?",
+    "expected_memory_content": "User decided the second-brain app should use Amazon Bedrock instead of OpenAI to keep everything in one AWS account.",
+    "notes": "direct topical overlap"
+  },
+  {
+    "id": "rec-05",
+    "query": "what's the plan for tomorrow morning?",
+    "expected_memory_content": "User plans to finish the Chroma integration before lunch tomorrow, then start on retrieval ranking.",
+    "notes": "'morning' vs 'before lunch' requires semantic match, not keyword match"
+  },
+  {
+    "id": "rec-06",
+    "query": "what are the hardware limits on the demo machine?",
+    "expected_memory_content": "The demo machine has 16GB of RAM, which constrains the Whisper model to a small size.",
+    "notes": "'hardware limits' does not appear verbatim in the memory"
+  },
+  {
+    "id": "rec-07",
+    "query": "how long do we have for this hackathon?",
+    "expected_memory_content": "User decided to timebox the hackathon to one week and cut reminders first if time runs short.",
+    "notes": "'how long' vs 'timebox to one week'"
+  },
+  {
+    "id": "rec-08",
+    "query": "what gets cut first if we run out of time?",
+    "expected_memory_content": "User decided to timebox the hackathon to one week and cut reminders first if time runs short.",
+    "notes": "same memory as rec-07, different angle on the same fact"
+  },
+  {
+    "id": "rec-09",
+    "query": "was I going to study anything for interviews?",
+    "expected_memory_content": "User wants to learn Kafka as part of system design interview prep.",
+    "notes": "duplicate-source check: cap-01 and cap-02 must have merged to one memory"
+  },
+  {
+    "id": "rec-10",
+    "query": "what have I said about my dog's vet appointments?",
+    "expected_memory_content": null,
+    "notes": "topic never discussed; retrieval must return no confident match, not a hallucinated one"
+  }
+]

@@ -24,6 +24,8 @@ class Settings(BaseSettings):
 
     heybrain_home: Path = Path.home() / ".heybrain"
 
+    whisper_model: str = "base.en"
+
     @property
     def db_path(self) -> Path:
         return self.heybrain_home / "brain.db"
@@ -36,10 +38,15 @@ class Settings(BaseSettings):
     def tmp_dir(self) -> Path:
         return self.heybrain_home / "tmp"
 
+    @property
+    def models_dir(self) -> Path:
+        return self.heybrain_home / "models"
+
     def ensure_home(self) -> None:
         self.heybrain_home.mkdir(parents=True, exist_ok=True)
         self.chroma_dir.mkdir(parents=True, exist_ok=True)
         self.tmp_dir.mkdir(parents=True, exist_ok=True)
+        self.models_dir.mkdir(parents=True, exist_ok=True)
 
 
 @lru_cache

@@ -15,6 +15,10 @@ class HeyBrainError(Exception):
 class BedrockError(HeyBrainError):
     """Raised when a Bedrock request fails or returns an unusable response."""
 
+    def __init__(self, message: str, *, recoverable: bool = False) -> None:
+        super().__init__(message)
+        self.recoverable = recoverable
+
 
 class TranscriptionError(HeyBrainError):
     """Raised when audio capture or speech-to-text fails."""

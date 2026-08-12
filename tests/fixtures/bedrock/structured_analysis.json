@@ -1,0 +1,16 @@
+{
+  "ResponseMetadata": {"RequestId": "req-struct-001", "HTTPStatusCode": 200},
+  "output": {
+    "message": {
+      "role": "assistant",
+      "content": [
+        {
+          "text": "{\"title\": \"Planning the Q3 roadmap\", \"summary\": \"Discussed prioritization for Q3.\", \"topic\": \"roadmap\", \"memory_candidates\": [{\"content\": \"Ship the Bedrock client by end of sprint.\", \"memory_type\": \"goal\", \"importance\": 0.8, \"topic\": \"roadmap\"}], \"tasks\": [{\"title\": \"Write unit tests for BedrockService\", \"description\": \"Cover retries and structured-output repair.\"}]}"
+        }
+      ]
+    }
+  },
+  "stopReason": "end_turn",
+  "usage": {"inputTokens": 120, "outputTokens": 75, "totalTokens": 195},
+  "metrics": {"latencyMs": 890}
+}

@@ -5,6 +5,8 @@ No Bedrock calls, no SQL, no prompt text lives here.
 
 from __future__ import annotations
 
+import json
+
 import typer
 
 from heybrain.cli import recall as recall_cli
@@ -55,10 +57,31 @@ def resume(
 
 @app.command(name="list")
 @render.guard
-def list_conversations() -> None:
+def list_conversations(
+    json_output: bool = typer.Option(False, "--json", help="Print conversations as a JSON array."),
+) -> None:
     """Recent conversations."""
     service = AppService(spinner_fn=render.spinner)
     conversations = service.list_conversations()
+    if json_output:
+        typer.echo(
+            json.dumps(
+                [
+                    {
+                        "id": c.id,
+                        "title": c.title,
+                        "summary": c.summary,
+                        "topic": c.topic,
+                        "status": c.status,
+                        "created_at": c.created_at,
+                        "updated_at": c.updated_at,
+                    }
+                    for c in conversations
+                ],
+                default=str,
+            )
+        )
+        return
     if not conversations:
         render.echo('No conversations yet. Try `brain think "..."`.')
         return

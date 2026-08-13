@@ -118,7 +118,7 @@ def test_cli_reindex_command(settings: Settings, conn, monkeypatch: pytest.Monke
 
     monkeypatch.setattr(
         "heybrain.cli.main.AppService",
-        lambda: _build_service(settings, get_connection(settings.db_path)),
+        lambda **_: _build_service(settings, get_connection(settings.db_path)),
     )
 
     runner = CliRunner()

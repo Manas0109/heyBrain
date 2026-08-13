@@ -13,9 +13,8 @@ from __future__ import annotations
 import difflib
 
 import typer
-from rich.console import Console
 
-from heybrain.core.errors import HeyBrainError
+from heybrain.cli import render
 from heybrain.core.service import AppService
 
 _FUZZY_CUTOFF = 0.4
@@ -45,38 +44,40 @@ def resolve_topic(query: str, topics: list[str]) -> str | None:
 
 
 def _pick_topic(service: AppService) -> str | None:
-    topics = service.list_recent_topics()
+    with render.spinner("Loading recent topics…"):
+        topics = service.list_recent_topics()
     if not topics:
-        typer.echo('No topics yet. Try `brain think "..."` first.')
+        render.echo('No topics yet. Try `brain think "..."` first.')
         return None
 
-    typer.echo("Recent topics:")
-    for index, summary in enumerate(topics, start=1):
-        when = summary.last_touched_at.strftime("%Y-%m-%d %H:%M")
-        typer.echo(f"  {index}. {summary.topic}  (last touched {when})")
+    render.echo("Recent topics:")
+    render.print_topics(topics)
 
     choice = typer.prompt("Pick a topic number")
     try:
         index = int(choice)
     except ValueError:
-        typer.echo(f"Not a number: {choice!r}")
+        render.error(f"Not a number: {choice!r}")
         return None
     if not (1 <= index <= len(topics)):
-        typer.echo(f"Out of range: {index}")
+        render.error(f"Out of range: {index}")
         return None
     return topics[index - 1].topic
 
 
 def run(topic: str | None, voice: bool) -> None:
-    service = AppService()
+    service = AppService(output_fn=render.echo, spinner_fn=render.spinner)
 
     if topic is None:
         resolved = _pick_topic(service)
     else:
-        known_topics = [summary.topic for summary in service.list_recent_topics(limit=1000)]
+        with render.spinner("Loading recent topics…"):
+            known_topics = [
+                summary.topic for summary in service.list_recent_topics(limit=1000)
+            ]
         resolved = resolve_topic(topic, known_topics)
         if resolved is None:
-            typer.echo(f"No topic found matching {topic!r}.")
+            render.error(f"No topic found matching {topic!r}.")
 
     if resolved is None:
         return
@@ -87,16 +88,11 @@ def run(topic: str | None, voice: bool) -> None:
         # AppService.resume hands off into the same think loop that already
         # saves and closes on Ctrl-C; this is a defensive backstop so a
         # traceback can never reach the terminal.
-        typer.echo("\nInterrupted -- conversation saved.")
+        render.echo("\nInterrupted -- conversation saved.")
         raise typer.Exit(code=0)
-    except HeyBrainError as exc:
-        typer.echo(f"Error: {exc}")
-        raise typer.Exit(code=1)
 
-    label = f" — {conversation.title}" if conversation.title else ""
-    typer.echo(f"\nSaved conversation {conversation.id}{label}")
+    render.saved_conversation(conversation)
 
     if not service.join_pending_extraction(timeout=0):
-        console = Console()
-        with console.status("saving…", spinner="dots"):
+        with render.spinner("Saving…"):
             service.join_pending_extraction()

@@ -9,9 +9,10 @@ from __future__ import annotations
 import logging
 import sqlite3
 import threading
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Callable
+from typing import Callable, ContextManager
 
 from heybrain.audio.record import record_until_enter
 from heybrain.bedrock.client import BedrockService
@@ -108,6 +109,19 @@ class ReminderTickSummary:
     missed: list[Reminder] = field(default_factory=list)
 
 
+SpinnerFactory = Callable[[str], ContextManager[None]]
+
+
+def _default_spinner(label: str) -> ContextManager[None]:
+    """No-op spinner used when the caller (e.g. a test) doesn't supply one.
+
+    Keeps this module free of any rich/CLI dependency -- the real spinner is
+    injected by cli/render.py so every blocking call over ~500ms gets a
+    labeled spinner (issue #14) without core knowing rich exists.
+    """
+    return nullcontext()
+
+
 class AppService:
     def __init__(
         self,
@@ -118,6 +132,7 @@ class AppService:
         bedrock: BedrockService | None = None,
         input_fn: Callable[[str], str] = input,
         output_fn: Callable[[str], None] = print,
+        spinner_fn: SpinnerFactory = _default_spinner,
     ) -> None:
         self._settings = settings or get_settings()
         self._conn = conn or get_connection(self._settings.db_path)
@@ -130,6 +145,7 @@ class AppService:
         self._bedrock = bedrock or BedrockService(UsageRepo(self._conn), self._settings)
         self._input = input_fn
         self._output = output_fn
+        self._spinner_fn = spinner_fn
 
         self._memory_service = MemoryService(
             bedrock=self._bedrock,
@@ -150,7 +166,8 @@ class AppService:
     def reindex(self) -> int:
         """Rebuild Chroma from SQLite. Chroma is disposable; SQLite is authoritative."""
         memories = self._memories.list_all()
-        embeddings = self._bedrock.embed([memory.content for memory in memories])
+        with self._spinner_fn("Embedding memories…"):
+            embeddings = self._bedrock.embed([memory.content for memory in memories])
         self._vector_store.rebuild(memories, embeddings)
         return len(memories)
 
@@ -204,7 +221,8 @@ class AppService:
         if voice:
             try:
                 path = record_until_enter()
-                return transcribe(path)
+                with self._spinner_fn("Transcribing…"):
+                    return transcribe(path)
             except TranscriptionError as exc:
                 self._output(str(exc))
                 self._output("Type it instead:")
@@ -235,9 +253,10 @@ class AppService:
             conversation_summary=conversation.summary,
             relevant_memories=relevant_memories,
         )
-        turn = self._bedrock.structured(
-            context_messages, system, ConversationTurn, effort="medium"
-        )
+        with self._spinner_fn("Thinking…"):
+            turn = self._bedrock.structured(
+                context_messages, system, ConversationTurn, effort="medium"
+            )
 
         self._messages.create(
             Message(conversation_id=conversation.id, role=Role.ASSISTANT, content=turn.reply)
@@ -262,21 +281,22 @@ class AppService:
         while True:
             local_now = datetime.now().astimezone()
             tz_name = local_now.tzname() or local_now.strftime("%z")
-            candidate = self._bedrock.structured(
-                [
-                    {
-                        "role": "user",
-                        "content": reminder_extraction_prompt(
-                            message=message,
-                            current_datetime=local_now.isoformat(),
-                            timezone=tz_name,
-                        ),
-                    }
-                ],
-                system="Resolve the reminder to a structured, timezone-aware datetime.",
-                schema=ReminderCandidate,
-                effort="low",
-            )
+            with self._spinner_fn("Resolving reminder time…"):
+                candidate = self._bedrock.structured(
+                    [
+                        {
+                            "role": "user",
+                            "content": reminder_extraction_prompt(
+                                message=message,
+                                current_datetime=local_now.isoformat(),
+                                timezone=tz_name,
+                            ),
+                        }
+                    ],
+                    system="Resolve the reminder to a structured, timezone-aware datetime.",
+                    schema=ReminderCandidate,
+                    effort="low",
+                )
             scheduled_at = self._parse_reminder_datetime(candidate.scheduled_at)
 
             if scheduled_at is None or scheduled_at <= datetime.now(timezone.utc):
@@ -318,19 +338,20 @@ class AppService:
                     f"{m.role.value}: {m.content}" for m in messages
                 )
                 try:
-                    analysis = self._bedrock.structured(
-                        [
-                            {
-                                "role": "user",
-                                "content": summarization_prompt(
-                                    conversation_text=conversation_text
-                                ),
-                            }
-                        ],
-                        system="Extract a structured summary of this conversation.",
-                        schema=ConversationAnalysis,
-                        effort="low",
-                    )
+                    with self._spinner_fn("Summarizing conversation…"):
+                        analysis = self._bedrock.structured(
+                            [
+                                {
+                                    "role": "user",
+                                    "content": summarization_prompt(
+                                        conversation_text=conversation_text
+                                    ),
+                                }
+                            ],
+                            system="Extract a structured summary of this conversation.",
+                            schema=ConversationAnalysis,
+                            effort="low",
+                        )
                     conversation.title = analysis.title
                     conversation.summary = analysis.summary
                     conversation.topic = analysis.topic
@@ -382,7 +403,8 @@ class AppService:
             self._messages.create(
                 Message(conversation_id=conversation.id, role=Role.USER, content=text)
             )
-            return self._memory_service.remember(text, conversation.id)
+            with self._spinner_fn("Checking for duplicates…"):
+                return self._memory_service.remember(text, conversation.id)
 
     def reprocess(self, conversation_id: str) -> list[Memory]:
         """Re-run memory extraction on an existing conversation.
@@ -395,7 +417,7 @@ class AppService:
         conversation = self._conversations.get(conversation_id)
         if conversation is None:
             raise HeyBrainError(f"No conversation found with id {conversation_id!r}")
-        with self._db_lock:
+        with self._db_lock, self._spinner_fn("Re-extracting memories…"):
             return self._memory_service.process_conversation(conversation_id)
 
     def recall(self, query: str) -> RecallResult:
@@ -406,23 +428,25 @@ class AppService:
         through recall_synthesis_prompt so the reply is synthesized, not
         dumped.
         """
-        memories = self._memory_retriever.retrieve(query, k=RETRIEVAL_K)
+        with self._spinner_fn("Searching memories…"):
+            memories = self._memory_retriever.retrieve(query, k=RETRIEVAL_K)
         if not memories:
             return RecallResult(answer=_NO_MEMORIES_MESSAGE, memories=[])
 
-        synthesis = self._bedrock.structured(
-            [
-                {
-                    "role": "user",
-                    "content": recall_synthesis_prompt(
-                        query=query, memories=[memory.content for memory in memories]
-                    ),
-                }
-            ],
-            system="Answer the user's recall query using only the supplied memories.",
-            schema=RecallSynthesis,
-            effort="medium",
-        )
+        with self._spinner_fn("Synthesizing answer…"):
+            synthesis = self._bedrock.structured(
+                [
+                    {
+                        "role": "user",
+                        "content": recall_synthesis_prompt(
+                            query=query, memories=[memory.content for memory in memories]
+                        ),
+                    }
+                ],
+                system="Answer the user's recall query using only the supplied memories.",
+                schema=RecallSynthesis,
+                effort="medium",
+            )
         return RecallResult(answer=synthesis.answer, memories=memories)
 
     def list_recent_topics(self, limit: int = 10) -> list[TopicSummary]:
@@ -460,10 +484,11 @@ class AppService:
                 raise HeyBrainError("No topics to resume yet -- try `brain think` first.")
             topic = recent[0].topic
 
-        conversations = self._conversations.list_by_topic(topic)
-        summaries = [c.summary for c in conversations if c.summary]
-        memories = self._memory_retriever.retrieve_by_topic(topic)
-        open_tasks = self._tasks.list_open_by_topic(topic)
+        with self._spinner_fn("Gathering context…"):
+            conversations = self._conversations.list_by_topic(topic)
+            summaries = [c.summary for c in conversations if c.summary]
+            memories = self._memory_retriever.retrieve_by_topic(topic)
+            open_tasks = self._tasks.list_open_by_topic(topic)
 
         if not summaries and not memories and not open_tasks:
             raise HeyBrainError(f"No topic found matching {topic!r}.")
@@ -474,12 +499,18 @@ class AppService:
             memories=[memory.content for memory in memories],
             open_tasks=[task.title for task in open_tasks],
         )
-        reconstruction = self._bedrock.structured(
-            [{"role": "user", "content": f"Reconstruct the topic '{topic}' so we can continue."}],
-            system,
-            TopicReconstruction,
-            effort="medium",
-        )
+        with self._spinner_fn("Reconstructing topic…"):
+            reconstruction = self._bedrock.structured(
+                [
+                    {
+                        "role": "user",
+                        "content": f"Reconstruct the topic '{topic}' so we can continue.",
+                    }
+                ],
+                system,
+                TopicReconstruction,
+                effort="medium",
+            )
 
         reconstruction_text = reconstruction.summary
         if reconstruction.open_threads:

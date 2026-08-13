@@ -10,9 +10,11 @@ from __future__ import annotations
 
 import functools
 import logging
+import sys
 from contextlib import contextmanager
 from typing import Callable, Iterator, ParamSpec, TypeVar
 
+import questionary
 import typer
 from rich.console import Console
 from rich.text import Text
@@ -143,6 +145,59 @@ def print_topics(topics: list[TopicSummary], *, out: Console | None = None) -> N
     for index, summary in enumerate(topics, start=1):
         when = summary.last_touched_at.strftime("%Y-%m-%d %H:%M")
         c.print(f"  {index}. {summary.topic}  [dim](last touched {when})[/dim]")
+
+
+def select_from_topics(
+    topics: list[TopicSummary],
+    *,
+    out: Console | None = None,
+    interactive: bool | None = None,
+) -> str | None:
+    """`brain resume` -- pick one topic, or None if cancelled/invalid.
+
+    Arrow-key select (via `questionary`) when attached to a real terminal.
+    `questionary`/`prompt_toolkit` needs real cursor control, which piped
+    input (scripts/demo.sh, CI, `docker run` without `-it`) doesn't have --
+    those fall back to the plain numbered prompt this replaced, unchanged.
+
+    `interactive` overrides the TTY autodetection; tests pass it explicitly
+    instead of monkeypatching `sys.stdin`/`sys.stdout`.
+    """
+    c = out or console
+    if interactive is None:
+        interactive = sys.stdin.isatty() and sys.stdout.isatty()
+
+    if interactive:
+        choices = [
+            questionary.Choice(
+                title=f"{summary.topic}  (last touched "
+                f"{summary.last_touched_at.strftime('%Y-%m-%d %H:%M')})",
+                value=summary.topic,
+            )
+            for summary in topics
+        ]
+        try:
+            selected = questionary.select("Pick a topic", choices=choices).ask()
+        except KeyboardInterrupt:
+            # Backstop: questionary is documented to swallow Ctrl-C and
+            # return None itself, but this guarantees no raw traceback can
+            # reach the terminal regardless of version behavior (plan.md §15).
+            selected = None
+        if selected is None:
+            c.print("[dim]Cancelled.[/dim]")
+        return selected
+
+    print_topics(topics, out=c)
+    choice = typer.prompt("Pick a topic number")
+    try:
+        index = int(choice)
+    except ValueError:
+        error(f"Not a number: {choice!r}", out=c)
+        return None
+    if not (1 <= index <= len(topics)):
+        error(f"Out of range: {index}", out=c)
+        return None
+    return topics[index - 1].topic
 
 
 _REMINDER_STATUS_STYLES: dict[ReminderStatus, str] = {

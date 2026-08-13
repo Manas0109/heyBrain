@@ -137,6 +137,48 @@ def test_print_topics_numbers_each_topic() -> None:
     assert "2. coding agents" in text
 
 
+def test_select_from_topics_falls_back_without_a_tty(monkeypatch: pytest.MonkeyPatch) -> None:
+    # `interactive=False` simulates piped input (scripts/demo.sh, CI,
+    # `docker run` without -it) without relying on real TTY detection.
+    console = _console()
+    topics = [
+        TopicSummary(topic="kafka", last_touched_at=datetime(2026, 8, 10, tzinfo=timezone.utc)),
+        TopicSummary(topic="coding agents", last_touched_at=datetime(2026, 8, 12, tzinfo=timezone.utc)),
+    ]
+    # typer/click bind `visible_prompt_func = input` at import time, so
+    # patching `builtins.input` doesn't reach it -- patch the bound name.
+    monkeypatch.setattr("typer._click.termui.visible_prompt_func", lambda _prompt="": "2")
+
+    selected = render.select_from_topics(topics, out=console, interactive=False)
+
+    assert selected == "coding agents"
+    text = _plain(console)
+    assert "1. kafka" in text
+    assert "2. coding agents" in text
+
+
+def test_select_from_topics_fallback_rejects_non_numeric(monkeypatch: pytest.MonkeyPatch) -> None:
+    console = _console()
+    topics = [TopicSummary(topic="kafka", last_touched_at=datetime(2026, 8, 10, tzinfo=timezone.utc))]
+    monkeypatch.setattr("typer._click.termui.visible_prompt_func", lambda _prompt="": "nope")
+
+    selected = render.select_from_topics(topics, out=console, interactive=False)
+
+    assert selected is None
+    assert "Not a number" in _plain(console)
+
+
+def test_select_from_topics_fallback_rejects_out_of_range(monkeypatch: pytest.MonkeyPatch) -> None:
+    console = _console()
+    topics = [TopicSummary(topic="kafka", last_touched_at=datetime(2026, 8, 10, tzinfo=timezone.utc))]
+    monkeypatch.setattr("typer._click.termui.visible_prompt_func", lambda _prompt="": "5")
+
+    selected = render.select_from_topics(topics, out=console, interactive=False)
+
+    assert selected is None
+    assert "Out of range" in _plain(console)
+
+
 @pytest.mark.parametrize(
     "exc,expected_fragment",
     [

@@ -51,18 +51,7 @@ def _pick_topic(service: AppService) -> str | None:
         return None
 
     render.echo("Recent topics:")
-    render.print_topics(topics)
-
-    choice = typer.prompt("Pick a topic number")
-    try:
-        index = int(choice)
-    except ValueError:
-        render.error(f"Not a number: {choice!r}")
-        return None
-    if not (1 <= index <= len(topics)):
-        render.error(f"Out of range: {index}")
-        return None
-    return topics[index - 1].topic
+    return render.select_from_topics(topics)
 
 
 def run(topic: str | None, voice: bool) -> None:

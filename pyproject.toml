@@ -11,6 +11,7 @@ dependencies = [
     "boto3>=1.34",
     "chromadb>=0.5",
     "rich>=13.7",
+    "questionary>=2.0",
     "sounddevice>=0.4.7",
     "numpy>=1.26",
     "faster-whisper>=1.0",

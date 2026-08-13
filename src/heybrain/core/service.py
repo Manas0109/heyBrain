@@ -9,7 +9,8 @@ from __future__ import annotations
 import logging
 import sqlite3
 import threading
-from datetime import datetime, timezone
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from typing import Callable
 
 from heybrain.audio.record import record_until_enter
@@ -18,6 +19,7 @@ from heybrain.bedrock.prompts import (
     continuation_prompt,
     conversation_prompt,
     recall_synthesis_prompt,
+    reminder_extraction_prompt,
     summarization_prompt,
 )
 from heybrain.bedrock.schemas import (
@@ -25,6 +27,7 @@ from heybrain.bedrock.schemas import (
     ConversationTurn,
     Intent,
     RecallSynthesis,
+    ReminderCandidate,
     TopicReconstruction,
 )
 from heybrain.core.config import Settings, get_settings
@@ -36,12 +39,15 @@ from heybrain.core.models import (
     Message,
     RecallResult,
     Reminder,
+    ReminderStatus,
     Role,
+    Task,
     TopicSummary,
 )
 from heybrain.memory.retriever import MemoryRetriever
 from heybrain.memory.service import MemoryService
 from heybrain.memory.vectors import VectorStore
+from heybrain.reminders.notify import notify as osascript_notify
 from heybrain.storage.db import get_connection
 from heybrain.storage.repositories import (
     ConversationRepo,
@@ -88,6 +94,18 @@ def _looks_like_retrieval_turn(text: str) -> bool:
     if "?" in lowered:
         return True
     return any(keyword in lowered for keyword in _RETRIEVAL_KEYWORDS)
+
+
+# plan.md §11 -- a tick fires every 60s; anything scheduled within the last
+# tick is "on time", not overdue, so it fires without the "(overdue)" prefix.
+_OVERDUE_GRACE = timedelta(minutes=1)
+_MISSED_AFTER = timedelta(hours=24)
+
+
+@dataclass
+class ReminderTickSummary:
+    fired: list[Reminder] = field(default_factory=list)
+    missed: list[Reminder] = field(default_factory=list)
 
 
 class AppService:
@@ -226,9 +244,71 @@ class AppService:
         )
 
         self._output(turn.reply)
-        # Reminder intent: persisted as a normal message for now — real
-        # extraction lands with issue #13.
+
+        if turn.intent == Intent.REMINDER:
+            self._handle_reminder(conversation, user_text)
+
         return turn.intent
+
+    def _handle_reminder(self, conversation: Conversation, user_text: str) -> None:
+        """Resolve a spoken reminder to an absolute time and persist it.
+
+        plan.md §11: the resolved time is echoed back before saving, and a
+        time in the past is rejected and re-asked rather than silently
+        stored -- this loops on user input until a future time is given or
+        the user gives up (blank input).
+        """
+        message = user_text
+        while True:
+            local_now = datetime.now().astimezone()
+            tz_name = local_now.tzname() or local_now.strftime("%z")
+            candidate = self._bedrock.structured(
+                [
+                    {
+                        "role": "user",
+                        "content": reminder_extraction_prompt(
+                            message=message,
+                            current_datetime=local_now.isoformat(),
+                            timezone=tz_name,
+                        ),
+                    }
+                ],
+                system="Resolve the reminder to a structured, timezone-aware datetime.",
+                schema=ReminderCandidate,
+                effort="low",
+            )
+            scheduled_at = self._parse_reminder_datetime(candidate.scheduled_at)
+
+            if scheduled_at is None or scheduled_at <= datetime.now(timezone.utc):
+                self._output(
+                    "That time's already passed — when would you like to be "
+                    "reminded instead?"
+                )
+                message = self._input("> ")
+                if not message.strip():
+                    self._output("Okay, skipping that reminder.")
+                    return
+                continue
+
+            self._output(
+                f"Got it — I'll remind you at {scheduled_at.isoformat()} to "
+                f"{candidate.title}."
+            )
+            task = self._tasks.create(
+                Task(conversation_id=conversation.id, title=candidate.title)
+            )
+            self._reminders.create(Reminder(task_id=task.id, scheduled_at=scheduled_at))
+            return
+
+    @staticmethod
+    def _parse_reminder_datetime(value: str) -> datetime | None:
+        try:
+            parsed = datetime.fromisoformat(value)
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            return None
+        return parsed
 
     def _close_conversation(self, conversation: Conversation, *, analyze: bool) -> Conversation:
         if analyze:
@@ -429,11 +509,53 @@ class AppService:
             raise HeyBrainError(f"No conversation found with id {conversation_id!r}")
         return conversation, self._messages.list_by_conversation(conversation_id)
 
-    def list_reminders(self) -> list[Reminder]:
-        raise NotImplementedError
+    def get_task(self, task_id: str) -> Task | None:
+        return self._tasks.get(task_id)
 
-    def tick_reminders(self) -> None:
-        raise NotImplementedError
+    def list_reminders(self) -> list[Reminder]:
+        """Pending reminders, soonest first."""
+        far_future = datetime.now(timezone.utc) + timedelta(days=3650)
+        return self._reminders.list_pending_due_before(far_future)
+
+    def tick_reminders(
+        self,
+        *,
+        now: datetime | None = None,
+        notify_fn: Callable[[str, str], None] | None = None,
+    ) -> ReminderTickSummary:
+        """`brain reminders tick` (plan.md §11): fire due reminders, mark missed ones.
+
+        Selects pending reminders with scheduled_at <= now. Overdue by less
+        than a tick interval fires normally; overdue by up to 24h fires with
+        an "(overdue)" prefix; older than 24h is marked missed without
+        firing a notification.
+        """
+        now = now or datetime.now(timezone.utc)
+        notify_fn = notify_fn or osascript_notify
+        # list_pending_due_before is a strict "<"; nudge the cutoff so a
+        # reminder scheduled for exactly `now` is included too (spec: <=).
+        due = self._reminders.list_pending_due_before(now + timedelta(microseconds=1))
+
+        summary = ReminderTickSummary()
+        for reminder in due:
+            overdue = now - reminder.scheduled_at
+            task = self._tasks.get(reminder.task_id)
+            title = task.title if task else "Reminder"
+
+            if overdue > _MISSED_AFTER:
+                reminder.status = ReminderStatus.MISSED
+                self._reminders.update(reminder)
+                summary.missed.append(reminder)
+                continue
+
+            prefix = "(overdue) " if overdue > _OVERDUE_GRACE else ""
+            notify_fn("heyBrain reminder", f"{prefix}{title}")
+            reminder.status = ReminderStatus.FIRED
+            reminder.fired_at = now
+            self._reminders.update(reminder)
+            summary.fired.append(reminder)
+
+        return summary
 
     def doctor(self) -> dict[str, bool]:
         raise NotImplementedError

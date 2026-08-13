@@ -14,6 +14,9 @@ CLI-only, no daemon: all logic lives in an importable `heybrain` package; the
 `brain` command is a thin Typer wrapper around it. All inference goes through
 Amazon Bedrock. See `plan.md` for the full design.
 
+
+![Project Screenshot](brainSS.png)
+
 ## What it does
 
 - **Capture** a thought by typing or speaking (`brain think`) — heyBrain

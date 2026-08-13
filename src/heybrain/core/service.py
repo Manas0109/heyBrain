@@ -6,7 +6,9 @@ Method bodies are stubs for now; each phase in plan.md fills one in.
 
 from __future__ import annotations
 
+import logging
 import sqlite3
+import threading
 from datetime import datetime, timezone
 from typing import Callable
 
@@ -24,6 +26,7 @@ from heybrain.core.models import (
     Reminder,
     Role,
 )
+from heybrain.memory.service import MemoryService
 from heybrain.memory.vectors import VectorStore
 from heybrain.storage.db import get_connection
 from heybrain.storage.repositories import (
@@ -35,6 +38,8 @@ from heybrain.storage.repositories import (
     UsageRepo,
 )
 from heybrain.transcription.whisper import transcribe
+
+logger = logging.getLogger(__name__)
 
 # plan.md §8.3 — never send full history, only the last N messages + summary.
 CONTEXT_WINDOW = 6
@@ -73,6 +78,17 @@ class AppService:
         self._input = input_fn
         self._output = output_fn
 
+        self._memory_service = MemoryService(
+            bedrock=self._bedrock,
+            vector_store=self._vector_store,
+            memory_repo=self._memories,
+            message_repo=self._messages,
+        )
+        # Guards the shared connection against the background extraction
+        # thread (issue #9, plan.md §9) racing a foreground call.
+        self._db_lock = threading.Lock()
+        self._extraction_thread: threading.Thread | None = None
+
     def reindex(self) -> int:
         """Rebuild Chroma from SQLite. Chroma is disposable; SQLite is authoritative."""
         memories = self._memories.list_all()
@@ -84,6 +100,7 @@ class AppService:
         conversation = self._conversations.create(Conversation())
         analyze = True
         first_turn = True
+        had_capture_turn = False
 
         try:
             while True:
@@ -97,12 +114,22 @@ class AppService:
                 if not stripped or stripped.lower() in _EXIT_WORDS:
                     break
 
-                self._run_turn(conversation, stripped)
+                intent = self._run_turn(conversation, stripped)
+                if intent == Intent.CAPTURE:
+                    had_capture_turn = True
         except (KeyboardInterrupt, EOFError):
             analyze = False
             self._output("\nSaving conversation and exiting.")
 
-        return self._close_conversation(conversation, analyze=analyze)
+        conversation = self._close_conversation(conversation, analyze=analyze)
+
+        # plan.md §9 -- capture-intent turns get their memories extracted on
+        # a background thread so the reply above never waits on it. The CLI
+        # joins this thread (with a spinner) before the process exits.
+        if analyze and had_capture_turn:
+            self._start_background_extraction(conversation.id)
+
+        return conversation
 
     def _next_input(self, voice: bool) -> str:
         if voice:
@@ -115,7 +142,7 @@ class AppService:
                 return self._input("> ")
         return self._input("> ")
 
-    def _run_turn(self, conversation: Conversation, user_text: str) -> None:
+    def _run_turn(self, conversation: Conversation, user_text: str) -> Intent:
         self._messages.create(
             Message(conversation_id=conversation.id, role=Role.USER, content=user_text)
         )
@@ -138,6 +165,7 @@ class AppService:
             self._output(_RETRIEVAL_STUBBED_NOTE)
         # Reminder intent: persisted as a normal message for now — real
         # extraction lands with issue #13.
+        return turn.intent
 
     def _close_conversation(self, conversation: Conversation, *, analyze: bool) -> Conversation:
         if analyze:
@@ -163,8 +191,10 @@ class AppService:
                     conversation.title = analysis.title
                     conversation.summary = analysis.summary
                     conversation.topic = analysis.topic
-                    # Memory candidates / tasks extraction belongs to issue #9;
-                    # not applied here.
+                    # Task extraction is not wired up yet (no consumer exists
+                    # for TaskCandidate rows). Memory candidates are handled
+                    # separately by memory.extractor, not analysis.memory_candidates
+                    # -- see _start_background_extraction below.
                 except HeyBrainError as exc:
                     self._output(f"Couldn't summarize that conversation ({exc}).")
 
@@ -172,8 +202,58 @@ class AppService:
         conversation.updated_at = datetime.now(timezone.utc)
         return self._conversations.update(conversation)
 
+    def _start_background_extraction(self, conversation_id: str) -> None:
+        def run() -> None:
+            with self._db_lock:
+                self._memory_service.process_conversation(conversation_id)
+
+        thread = threading.Thread(target=run, daemon=True)
+        self._extraction_thread = thread
+        thread.start()
+
+    def join_pending_extraction(self, timeout: float | None = None) -> bool:
+        """Block until background memory extraction finishes.
+
+        The CLI calls this before the process exits, showing a spinner
+        while it waits (plan.md §9). Returns True once extraction has
+        finished (or there was nothing to wait for); False if `timeout`
+        elapsed first.
+        """
+        thread = self._extraction_thread
+        if thread is None:
+            return True
+        thread.join(timeout)
+        return not thread.is_alive()
+
     def remember(self, text: str) -> Memory:
-        raise NotImplementedError
+        """Force a long-term memory, bypassing the importance threshold.
+
+        Still runs the full dedup pipeline (plan.md §8.1) -- an explicit
+        `brain remember` can still be a near-duplicate of something already
+        stored. Runs synchronously: the user is waiting on this command.
+        """
+        conversation = self._conversations.create(
+            Conversation(status=ConversationStatus.CLOSED, title=f"remember: {text[:60]}")
+        )
+        with self._db_lock:
+            self._messages.create(
+                Message(conversation_id=conversation.id, role=Role.USER, content=text)
+            )
+            return self._memory_service.remember(text, conversation.id)
+
+    def reprocess(self, conversation_id: str) -> list[Memory]:
+        """Re-run memory extraction on an existing conversation.
+
+        Escape hatch for interrupted background extraction (plan.md §9):
+        if the process was killed before a background extraction thread
+        finished, the conversation is still saved but its memories are
+        lost, and this re-derives them.
+        """
+        conversation = self._conversations.get(conversation_id)
+        if conversation is None:
+            raise HeyBrainError(f"No conversation found with id {conversation_id!r}")
+        with self._db_lock:
+            return self._memory_service.process_conversation(conversation_id)
 
     def recall(self, query: str) -> str:
         raise NotImplementedError

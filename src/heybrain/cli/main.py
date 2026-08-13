@@ -32,7 +32,13 @@ def think(
 @app.command()
 def remember(text: str) -> None:
     """Force a long-term memory, no conversation."""
-    _not_implemented("remember")
+    service = AppService()
+    try:
+        memory = service.remember(text)
+    except HeyBrainError as exc:
+        typer.echo(f"Error: {exc}")
+        raise typer.Exit(code=1)
+    typer.echo(f"Remembered ({memory.memory_type.value}): {memory.content}")
 
 
 @app.command()
@@ -105,6 +111,27 @@ def reindex() -> None:
     """Rebuild Chroma from SQLite. Chroma is disposable; SQLite is authoritative."""
     count = AppService().reindex()
     typer.echo(f"Reindexed {count} memories into Chroma.")
+
+
+@app.command()
+def reprocess(conversation_id: str) -> None:
+    """Re-run memory extraction on an existing conversation.
+
+    Escape hatch for a background extraction thread interrupted by process
+    exit (plan.md §9) -- the conversation is safe, but its memories may
+    never have been extracted.
+    """
+    service = AppService()
+    try:
+        memories = service.reprocess(conversation_id)
+    except HeyBrainError as exc:
+        typer.echo(f"Error: {exc}")
+        raise typer.Exit(code=1)
+    if not memories:
+        typer.echo("No memories worth keeping were found.")
+        return
+    for memory in memories:
+        typer.echo(f"- ({memory.memory_type.value}) {memory.content}")
 
 
 def main() -> None:

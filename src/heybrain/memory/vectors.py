@@ -47,10 +47,13 @@ class VectorStore:
         # embedding_function=None (both here and in `configuration`) disables
         # Chroma's default local embedding model; add()/query() then require
         # explicit vectors from the caller and raise if none are given.
+        # hnsw:space=cosine (Chroma's default is l2) so `search`'s returned
+        # distance is `1 - cosine_similarity` -- what issue #9's dedup
+        # threshold (plan.md §8.2) is defined in terms of.
         return self._client.get_or_create_collection(
             _COLLECTION_NAME,
             embedding_function=None,
-            configuration={"embedding_function": None},
+            configuration={"embedding_function": None, "hnsw": {"space": "cosine"}},
         )
 
     def upsert(

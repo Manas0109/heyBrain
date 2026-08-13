@@ -8,9 +8,14 @@ this module never calls Bedrock, touches SQL, or holds prompt text.
 from __future__ import annotations
 
 import typer
+from rich.console import Console
 
 from heybrain.core.errors import HeyBrainError
 from heybrain.core.service import AppService
+
+# plan.md §9 -- background extraction should finish almost instantly; this
+# is just enough headroom to avoid interrupting a slow structured call.
+_EXTRACTION_JOIN_POLL_SECONDS = 0.2
 
 
 def run(text: list[str] | None, voice: bool) -> None:
@@ -30,3 +35,10 @@ def run(text: list[str] | None, voice: bool) -> None:
 
     label = f" — {conversation.title}" if conversation.title else ""
     typer.echo(f"\nSaved conversation {conversation.id}{label}")
+
+    # Capture-intent turns extract memories on a background thread (issue #9,
+    # plan.md §9); join it here so the process never exits mid-write.
+    if not service.join_pending_extraction(timeout=0):
+        console = Console()
+        with console.status("saving…", spinner="dots"):
+            service.join_pending_extraction()

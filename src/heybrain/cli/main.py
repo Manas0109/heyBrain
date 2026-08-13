@@ -100,6 +100,13 @@ def doctor() -> None:
     _not_implemented("doctor")
 
 
+@app.command()
+def reindex() -> None:
+    """Rebuild Chroma from SQLite. Chroma is disposable; SQLite is authoritative."""
+    count = AppService().reindex()
+    typer.echo(f"Reindexed {count} memories into Chroma.")
+
+
 def main() -> None:
     app()
 

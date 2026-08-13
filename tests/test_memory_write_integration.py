@@ -210,7 +210,7 @@ def test_cli_remember_command(settings, conn, vector_store, monkeypatch) -> None
     bedrock = FakeBedrock(extraction_candidates=[candidate])
 
     monkeypatch.setattr(
-        "heybrain.cli.main.AppService",
+        "heybrain.cli.remember.AppService",
         lambda: AppService(
             conn=conn, settings=settings, vector_store=vector_store, bedrock=bedrock
         ),

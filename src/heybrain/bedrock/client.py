@@ -268,22 +268,25 @@ class BedrockService:
         kwargs: dict[str, Any] = dict(
             model_id=model_id,
             region_name=self._settings.aws_region,
-            credentials_profile_name=self._settings.aws_profile,
             max_tokens=CHAT_MAX_TOKENS,
             reasoning_effort=effort,
             timeout=CHAT_TIMEOUT_SECONDS,
         )
+        if self._settings.aws_profile:
+            kwargs["credentials_profile_name"] = self._settings.aws_profile
         if output_config is not None:
             kwargs["output_config"] = output_config
         return ChatBedrockConverse(**kwargs)
 
     def _default_embeddings_model(self) -> BedrockEmbeddings:
-        return BedrockEmbeddings(
+        kwargs: dict[str, Any] = dict(
             model_id=self._settings.bedrock_embedding_model_id,
             region_name=self._settings.aws_region,
-            credentials_profile_name=self._settings.aws_profile,
             config=Config(
                 connect_timeout=EMBED_TIMEOUT_SECONDS,
                 read_timeout=EMBED_TIMEOUT_SECONDS,
             ),
         )
+        if self._settings.aws_profile:
+            kwargs["credentials_profile_name"] = self._settings.aws_profile
+        return BedrockEmbeddings(**kwargs)

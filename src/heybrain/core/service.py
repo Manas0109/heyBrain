@@ -24,6 +24,7 @@ from heybrain.core.models import (
     Reminder,
     Role,
 )
+from heybrain.memory.vectors import VectorStore
 from heybrain.storage.db import get_connection
 from heybrain.storage.repositories import (
     ConversationRepo,
@@ -55,6 +56,7 @@ class AppService:
         *,
         conn: sqlite3.Connection | None = None,
         settings: Settings | None = None,
+        vector_store: VectorStore | None = None,
         bedrock: BedrockService | None = None,
         input_fn: Callable[[str], str] = input,
         output_fn: Callable[[str], None] = print,
@@ -66,9 +68,17 @@ class AppService:
         self._memories = MemoryRepo(self._conn)
         self._tasks = TaskRepo(self._conn)
         self._reminders = ReminderRepo(self._conn)
+        self._vector_store = vector_store or VectorStore(self._settings.chroma_dir)
         self._bedrock = bedrock or BedrockService(UsageRepo(self._conn), self._settings)
         self._input = input_fn
         self._output = output_fn
+
+    def reindex(self) -> int:
+        """Rebuild Chroma from SQLite. Chroma is disposable; SQLite is authoritative."""
+        memories = self._memories.list_all()
+        embeddings = self._bedrock.embed([memory.content for memory in memories])
+        self._vector_store.rebuild(memories, embeddings)
+        return len(memories)
 
     def think(self, text: str | None = None, *, voice: bool = False) -> Conversation:
         conversation = self._conversations.create(Conversation())

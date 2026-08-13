@@ -218,6 +218,12 @@ class MemoryRepo:
         ).fetchall()
         return [self._to_model(row) for row in rows]
 
+    def list_all(self) -> list[Memory]:
+        rows = self._conn.execute(
+            "SELECT * FROM memories ORDER BY created_at ASC"
+        ).fetchall()
+        return [self._to_model(row) for row in rows]
+
     @staticmethod
     def _to_model(row: sqlite3.Row) -> Memory:
         return Memory(

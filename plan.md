@@ -2,7 +2,7 @@
 
 **Status:** Authoritative plan. Supersedes all earlier drafts.
 **Context:** Hackathon build, ~1 week. Optimize for a working, demoable end-to-end product — not for a maintainable long-lived product.
-**Last updated:** 2026-08-13
+**Last updated:** 2026-08-13 (§5/§10 voice recording UX revised post-launch, issue #5)
 
 ---
 
@@ -165,7 +165,7 @@ brain doctor                 # verify AWS creds, Bedrock access, mic, models
 **Voice vs text within `think`:**
 - `brain think "some text"` → text, no mic.
 - `brain think` with no args → `--voice/--text` flag decides; default is **voice** once Phase 2 lands, `--text` falls back to a prompt.
-- Recording is **press-Enter-to-stop** (not hold-to-talk). Simple, works over screen share.
+- Recording is a **press-Enter-to-start / press-Enter-to-stop toggle** (not hold-to-talk, and not auto-start-on-invoke). Revised post-launch (issue #5) after using the app: auto-start-the-instant-you-call-it left no beat to get ready before capture began. Hold-to-talk was considered and rejected as too complex -- it needs `pynput` plus macOS Accessibility permissions just to detect a held key from the terminal. The toggle needs nothing extra and still works over screen share.
 - The assistant's replies are **text only**. No TTS in the MVP.
 
 Suggested user alias (documented in the README, not installed by us): `alias think='brain think'`.
@@ -347,14 +347,17 @@ Whisper model: `base.en` by default (fast, good enough). `small.en` configurable
 ## 10. Voice
 
 ```
-Start recording → [Enter] → temp WAV → faster-whisper → transcript → pipeline
-                                    └→ delete WAV immediately
+[Enter] start → [Enter] stop → temp WAV → faster-whisper → transcript → pipeline
+                                                        └→ delete WAV immediately
 ```
 
+- Recording is a **toggle** (revised post-launch, issue #5; see §5): the CLI prints "Press Enter to start recording" and blocks on `input()` with the mic *not yet open*; only once the user presses Enter does it open the stream, print the recording-in-progress prompt, and start capturing; a second Enter stops it. This replaced an earlier version that started capturing the instant the function was called.
 - Mic capture via `sounddevice` into a temp WAV under `HEYBRAIN_HOME/tmp/`.
 - The temp file is deleted in a `finally` block, always. **Raw audio is never persisted.**
 - Empty or whitespace-only transcript → tell the user, offer to retype, do not call Bedrock.
 - Mic permission failure on macOS → clear message pointing at System Settings, not a traceback.
+- **One mic stream per voice session, not per turn.** `brain think --voice` opens a single `sd.InputStream` lazily on the first turn and keeps it open for every subsequent turn in that session; each turn just toggles whether the callback keeps or drops incoming frames. This exists because opening/closing an `InputStream` repeatedly within one process is a known class of PortAudio/CoreAudio deadlock on macOS, and a user hit exactly that: recording hung indefinitely (no traceback, no CPU activity) on the 3rd consecutive voice turn under the old open-per-turn design.
+- Both the stream open and the stream close are wrapped in a watchdog with a bounded wait (10s open / 5s close) so a stuck native call surfaces as a `TranscriptionError` instead of hanging the CLI forever. This is a mitigation, not a root-cause fix -- it wasn't reproduced locally -- so a hang is still possible in principle up to the timeout, but it can no longer hang *silently forever*.
 - First run downloads the Whisper model (~150MB for `base.en`). `brain doctor` pre-warms it so the demo never stalls on a download.
 
 ---

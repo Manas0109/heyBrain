@@ -91,13 +91,24 @@ def show(conversation_id: str) -> None:
 @reminders_app.command(name="list")
 def reminders_list() -> None:
     """Pending reminders."""
-    _not_implemented("reminders list")
+    service = AppService()
+    reminders = service.list_reminders()
+    if not reminders:
+        typer.echo("No pending reminders.")
+        return
+    for reminder in reminders:
+        task = service.get_task(reminder.task_id)
+        title = task.title if task else "(unknown)"
+        when = reminder.scheduled_at.strftime("%Y-%m-%d %H:%M %z")
+        typer.echo(f"{reminder.id}  {when}  {title}")
 
 
 @reminders_app.command(name="tick")
 def reminders_tick() -> None:
     """Internal: fire due reminders (called by launchd)."""
-    _not_implemented("reminders tick")
+    service = AppService()
+    summary = service.tick_reminders()
+    typer.echo(f"Fired {len(summary.fired)}, missed {len(summary.missed)}.")
 
 
 @app.command()

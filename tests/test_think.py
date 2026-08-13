@@ -23,12 +23,17 @@ class FakeBedrock:
         self._turns = list(turns)
         self._analysis = analysis
         self.structured_calls: list[tuple[list[dict], str, type]] = []
+        self.embed_calls: list[list[str]] = []
 
     def structured(self, messages, system, schema, effort, model=None):
         self.structured_calls.append((messages, system, schema))
         if schema is ConversationAnalysis:
             return self._analysis
         return self._turns.pop(0)
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        self.embed_calls.append(list(texts))
+        return [[0.0] * 4 for _ in texts]
 
 
 @pytest.fixture
@@ -105,7 +110,13 @@ def test_think_never_sends_more_than_context_window(settings, conn) -> None:
             assert len(messages) <= 6
 
 
-def test_think_stubs_retrieval_for_question_intent(settings, conn) -> None:
+def test_think_retrieves_memories_for_question_intent(settings, conn) -> None:
+    """Issue #10: question-shaped turns run real retrieval before the reply.
+
+    The store is empty here (no memories seeded), so retrieval legitimately
+    returns nothing -- what this asserts is that `_run_turn` actually calls
+    into embed()/retrieval for a question turn, not that it finds a memory.
+    """
     turns = [ConversationTurn(intent="question", reply="I don't have that yet.")]
     bedrock = FakeBedrock(turns, _analysis())
     inputs = iter([""])
@@ -121,7 +132,25 @@ def test_think_stubs_retrieval_for_question_intent(settings, conn) -> None:
 
     service.think("what did I say about Kafka last week?")
 
-    assert any("long-term memory" in line for line in outputs)
+    assert bedrock.embed_calls == [["what did I say about Kafka last week?"]]
+
+
+def test_think_skips_retrieval_for_plain_capture_turn(settings, conn) -> None:
+    turns = [ConversationTurn(intent="capture", reply="noted")]
+    bedrock = FakeBedrock(turns, _analysis())
+    inputs = iter([""])
+
+    service = AppService(
+        conn=conn,
+        settings=settings,
+        bedrock=bedrock,
+        input_fn=lambda _prompt: next(inputs),
+        output_fn=lambda _line: None,
+    )
+
+    service.think("idea: a CLI that turns spoken thoughts into memories")
+
+    assert bedrock.embed_calls == []
 
 
 def test_think_ctrl_c_saves_and_skips_extraction(settings, conn) -> None:

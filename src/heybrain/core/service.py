@@ -26,6 +26,7 @@ from heybrain.core.models import (
     Reminder,
     Role,
 )
+from heybrain.memory.retriever import MemoryRetriever
 from heybrain.memory.service import MemoryService
 from heybrain.memory.vectors import VectorStore
 from heybrain.storage.db import get_connection
@@ -46,13 +47,28 @@ CONTEXT_WINDOW = 6
 
 _EXIT_WORDS = {"exit", "quit", "bye", ":q"}
 
-# Layer 4 (long-term memory retrieval) is issue #10, not yet built. Question /
-# recall / resume intents would normally block on retrieval here; instead we
-# proceed with conversation-only context and say so.
-_RETRIEVAL_STUBBED_NOTE = (
-    "(long-term memory recall isn't wired up yet, so that answer only draws "
-    "on this conversation.)"
+# plan.md §8.3 layer 4 -- top-K=5 relevant long-term memories, only pulled in
+# for question/recall/resume turns; a pure capture turn never needs a vector
+# search.
+RETRIEVAL_K = 5
+
+# Words/punctuation that mark a turn as plausibly a question, recall, or
+# resume, so it's worth an embed + Chroma search before replying. Deliberately
+# cheap and over-inclusive (a false positive just costs one extra vector
+# search) rather than an LLM call, which would reintroduce the
+# classify-then-reply round trip plan.md §9 rules out.
+_RETRIEVAL_KEYWORDS = (
+    "remember", "recall", "earlier", "before", "previously", "again",
+    "continue", "resume", "picking up", "pick up", "what did", "what was",
+    "what were", "what have",
 )
+
+
+def _looks_like_retrieval_turn(text: str) -> bool:
+    lowered = text.lower()
+    if "?" in lowered:
+        return True
+    return any(keyword in lowered for keyword in _RETRIEVAL_KEYWORDS)
 
 
 class AppService:
@@ -83,6 +99,11 @@ class AppService:
             vector_store=self._vector_store,
             memory_repo=self._memories,
             message_repo=self._messages,
+        )
+        self._memory_retriever = MemoryRetriever(
+            bedrock=self._bedrock,
+            vector_store=self._vector_store,
+            memory_repo=self._memories,
         )
         # Guards the shared connection against the background extraction
         # thread (issue #9, plan.md §9) racing a foreground call.
@@ -150,8 +171,22 @@ class AppService:
         recent = self._messages.list_by_conversation(conversation.id)[-CONTEXT_WINDOW:]
         context_messages = [{"role": m.role.value, "content": m.content} for m in recent]
 
-        # Layer 4 (relevant_memories) is deferred to issue #10 — see module note.
-        system = conversation_prompt(conversation_summary=conversation.summary)
+        # Layer 4 (plan.md §8.3): retrieval must land in the same call that
+        # produces the reply, since intent classification and reply
+        # generation happen together (no separate classification round-trip,
+        # plan.md §9). True intent isn't known until that call returns, so
+        # this is a cheap local guess used only to decide whether it's worth
+        # paying for a vector search before asking -- turn.intent below is
+        # still the real, authoritative classification.
+        relevant_memories: list[str] = []
+        if _looks_like_retrieval_turn(user_text):
+            memories = self._memory_retriever.retrieve(user_text, k=RETRIEVAL_K)
+            relevant_memories = [memory.content for memory in memories]
+
+        system = conversation_prompt(
+            conversation_summary=conversation.summary,
+            relevant_memories=relevant_memories,
+        )
         turn = self._bedrock.structured(
             context_messages, system, ConversationTurn, effort="medium"
         )
@@ -161,8 +196,6 @@ class AppService:
         )
 
         self._output(turn.reply)
-        if turn.intent in (Intent.QUESTION, Intent.RECALL, Intent.RESUME):
-            self._output(_RETRIEVAL_STUBBED_NOTE)
         # Reminder intent: persisted as a normal message for now — real
         # extraction lands with issue #13.
         return turn.intent

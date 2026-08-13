@@ -36,4 +36,5 @@ pythonpath = ["src"]
 testpaths = ["tests"]
 markers = [
     "slow: needs real hardware/models and real wall-clock time; opt-in via HEYBRAIN_RUN_SLOW_TESTS=1",
+    "live_eval: needs real Bedrock credentials; opt-in via HEYBRAIN_RUN_LIVE_EVAL=1",
 ]

@@ -20,7 +20,11 @@ def get_connection(db_path: Path | None = None) -> sqlite3.Connection:
     path = db_path if db_path is not None else get_settings().db_path
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    conn = sqlite3.connect(path)
+    # check_same_thread=False: background memory extraction (issue #9, plan.md
+    # §9) writes through this same connection from a worker thread. Callers
+    # that hand the connection to a background thread are responsible for
+    # serializing access (see AppService's extraction lock).
+    conn = sqlite3.connect(path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")

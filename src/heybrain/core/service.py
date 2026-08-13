@@ -14,8 +14,17 @@ from typing import Callable
 
 from heybrain.audio.record import record_until_enter
 from heybrain.bedrock.client import BedrockService
-from heybrain.bedrock.prompts import conversation_prompt, summarization_prompt
-from heybrain.bedrock.schemas import ConversationAnalysis, ConversationTurn, Intent
+from heybrain.bedrock.prompts import (
+    conversation_prompt,
+    recall_synthesis_prompt,
+    summarization_prompt,
+)
+from heybrain.bedrock.schemas import (
+    ConversationAnalysis,
+    ConversationTurn,
+    Intent,
+    RecallSynthesis,
+)
 from heybrain.core.config import Settings, get_settings
 from heybrain.core.errors import HeyBrainError, TranscriptionError
 from heybrain.core.models import (
@@ -23,6 +32,7 @@ from heybrain.core.models import (
     ConversationStatus,
     Memory,
     Message,
+    RecallResult,
     Reminder,
     Role,
 )
@@ -51,6 +61,12 @@ _EXIT_WORDS = {"exit", "quit", "bye", ":q"}
 # for question/recall/resume turns; a pure capture turn never needs a vector
 # search.
 RETRIEVAL_K = 5
+
+# plan.md §8.4 -- recall never invents an answer when nothing was found.
+# Skipping the Bedrock call entirely (rather than trusting the prompt alone)
+# means an empty store never depends on the model actually following the
+# "don't invent an answer" instruction.
+_NO_MEMORIES_MESSAGE = "I don't have anything on that yet."
 
 # Words/punctuation that mark a turn as plausibly a question, recall, or
 # resume, so it's worth an embed + Chroma search before replying. Deliberately
@@ -288,8 +304,32 @@ class AppService:
         with self._db_lock:
             return self._memory_service.process_conversation(conversation_id)
 
-    def recall(self, query: str) -> str:
-        raise NotImplementedError
+    def recall(self, query: str) -> RecallResult:
+        """Semantic search + LLM synthesis (plan.md §8.4).
+
+        Never returns raw search results: an empty retrieval short-circuits
+        before any Bedrock call, and a non-empty one is always passed
+        through recall_synthesis_prompt so the reply is synthesized, not
+        dumped.
+        """
+        memories = self._memory_retriever.retrieve(query, k=RETRIEVAL_K)
+        if not memories:
+            return RecallResult(answer=_NO_MEMORIES_MESSAGE, memories=[])
+
+        synthesis = self._bedrock.structured(
+            [
+                {
+                    "role": "user",
+                    "content": recall_synthesis_prompt(
+                        query=query, memories=[memory.content for memory in memories]
+                    ),
+                }
+            ],
+            system="Answer the user's recall query using only the supplied memories.",
+            schema=RecallSynthesis,
+            effort="medium",
+        )
+        return RecallResult(answer=synthesis.answer, memories=memories)
 
     def resume(self, topic: str | None = None) -> Conversation:
         raise NotImplementedError

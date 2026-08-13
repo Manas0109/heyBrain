@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import typer
 
+from heybrain.cli import recall as recall_cli
+from heybrain.cli import remember as remember_cli
 from heybrain.cli import think as think_cli
 from heybrain.core.errors import HeyBrainError
 from heybrain.core.service import AppService
@@ -32,19 +34,13 @@ def think(
 @app.command()
 def remember(text: str) -> None:
     """Force a long-term memory, no conversation."""
-    service = AppService()
-    try:
-        memory = service.remember(text)
-    except HeyBrainError as exc:
-        typer.echo(f"Error: {exc}")
-        raise typer.Exit(code=1)
-    typer.echo(f"Remembered ({memory.memory_type.value}): {memory.content}")
+    remember_cli.run(text)
 
 
 @app.command()
 def recall(query: str) -> None:
     """Semantic search + LLM synthesis."""
-    _not_implemented("recall")
+    recall_cli.run(query)
 
 
 @app.command()

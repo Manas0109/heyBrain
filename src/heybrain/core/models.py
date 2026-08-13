@@ -106,6 +106,13 @@ class Reminder(BaseModel):
     created_at: datetime = Field(default_factory=_now)
 
 
+class RecallResult(BaseModel):
+    """`brain recall` output: a synthesized answer plus its attributed sources."""
+
+    answer: str
+    memories: list[Memory] = Field(default_factory=list)
+
+
 class UsageRecord(BaseModel):
     id: str = Field(default_factory=_new_id)
     request_id: str

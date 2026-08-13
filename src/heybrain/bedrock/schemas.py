@@ -47,6 +47,13 @@ class ReminderCandidate(_StrictModel):
     recurrence: str | None = None
 
 
+class ConversationTurn(_StrictModel):
+    """Intent classification + reply, produced in a single call (plan.md §9)."""
+
+    intent: Intent
+    reply: str
+
+
 class ConversationAnalysis(_StrictModel):
     title: str
     summary: str

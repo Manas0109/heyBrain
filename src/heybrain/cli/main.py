@@ -7,6 +7,10 @@ from __future__ import annotations
 
 import typer
 
+from heybrain.cli import think as think_cli
+from heybrain.core.errors import HeyBrainError
+from heybrain.core.service import AppService
+
 app = typer.Typer(name="brain", help="A laptop-first personal thinking and memory assistant.")
 reminders_app = typer.Typer(help="Manage reminders.")
 app.add_typer(reminders_app, name="reminders")
@@ -17,9 +21,12 @@ def _not_implemented(command: str) -> None:
 
 
 @app.command()
-def think(text: list[str] = typer.Argument(None)) -> None:
+def think(
+    text: list[str] = typer.Argument(None),
+    voice: bool = typer.Option(False, "--voice", help="Speak instead of typing."),
+) -> None:
     """Capture + converse. No args → prompt or record."""
-    _not_implemented("think")
+    think_cli.run(text, voice)
 
 
 @app.command()
@@ -43,13 +50,36 @@ def resume(topic: str = typer.Argument(None)) -> None:
 @app.command(name="list")
 def list_conversations() -> None:
     """Recent conversations."""
-    _not_implemented("list")
+    service = AppService()
+    conversations = service.list_conversations()
+    if not conversations:
+        typer.echo("No conversations yet. Try `brain think \"...\"`.")
+        return
+    for conversation in conversations:
+        title = conversation.title or "(untitled)"
+        when = conversation.updated_at.strftime("%Y-%m-%d %H:%M")
+        typer.echo(f"{conversation.id}  [{conversation.status.value:6}]  {when}  {title}")
 
 
 @app.command()
 def show(conversation_id: str) -> None:
     """One conversation in full."""
-    _not_implemented("show")
+    service = AppService()
+    try:
+        conversation, messages = service.show_conversation(conversation_id)
+    except HeyBrainError as exc:
+        typer.echo(str(exc))
+        raise typer.Exit(code=1)
+
+    typer.echo(f"# {conversation.title or '(untitled)'}")
+    if conversation.summary:
+        typer.echo(conversation.summary)
+    typer.echo(f"topic: {conversation.topic or '-'}   status: {conversation.status.value}")
+    typer.echo("")
+    for message in messages:
+        speaker = "You" if message.role.value == "user" else "brain"
+        when = message.created_at.strftime("%H:%M:%S")
+        typer.echo(f"[{when}] {speaker}: {message.content}")
 
 
 @reminders_app.command(name="list")

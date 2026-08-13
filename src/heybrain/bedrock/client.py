@@ -6,9 +6,10 @@ models, and BedrockError. See plan.md §6 for the request rules this
 module exists to enforce:
 
 - Never send temperature/top_p/top_k (removed on current Claude models).
-- Never send budget_tokens; effort is routed via `reasoning_effort`,
-  which langchain_aws translates to `output_config.effort` + adaptive
-  thinking for Claude models.
+- Never send budget_tokens or `reasoning_effort` — the configured chat
+  model (Qwen) doesn't support reasoning-effort routing, so `effort` is
+  accepted for call-site intent and usage-log bookkeeping only and is
+  never forwarded to the model.
 - Never use assistant-turn prefills to force JSON; structured() uses
   Bedrock's native `output_config.textFormat=json_schema` output mode.
 """
@@ -265,11 +266,13 @@ class BedrockService:
     def _default_chat_model(
         self, model_id: str, effort: EffortLevel, output_config: dict | None
     ) -> ChatBedrockConverse:
+        # `effort` is intentionally not forwarded: the configured chat model
+        # (Qwen) doesn't support reasoning-effort routing, and sending
+        # `reasoning_effort` to it only produces a langchain_aws warning.
         kwargs: dict[str, Any] = dict(
             model_id=model_id,
             region_name=self._settings.aws_region,
             max_tokens=CHAT_MAX_TOKENS,
-            reasoning_effort=effort,
             timeout=CHAT_TIMEOUT_SECONDS,
         )
         if self._settings.aws_profile:

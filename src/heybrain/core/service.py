@@ -15,6 +15,7 @@ from typing import Callable
 from heybrain.audio.record import record_until_enter
 from heybrain.bedrock.client import BedrockService
 from heybrain.bedrock.prompts import (
+    continuation_prompt,
     conversation_prompt,
     recall_synthesis_prompt,
     summarization_prompt,
@@ -24,6 +25,7 @@ from heybrain.bedrock.schemas import (
     ConversationTurn,
     Intent,
     RecallSynthesis,
+    TopicReconstruction,
 )
 from heybrain.core.config import Settings, get_settings
 from heybrain.core.errors import HeyBrainError, TranscriptionError
@@ -35,6 +37,7 @@ from heybrain.core.models import (
     RecallResult,
     Reminder,
     Role,
+    TopicSummary,
 )
 from heybrain.memory.retriever import MemoryRetriever
 from heybrain.memory.service import MemoryService
@@ -135,6 +138,17 @@ class AppService:
 
     def think(self, text: str | None = None, *, voice: bool = False) -> Conversation:
         conversation = self._conversations.create(Conversation())
+        return self._converse(conversation, text, voice=voice)
+
+    def _converse(
+        self, conversation: Conversation, text: str | None, *, voice: bool
+    ) -> Conversation:
+        """The interactive turn loop shared by `think` and `resume`.
+
+        `resume` hands off here once it has opened a new conversation and
+        printed the reconstruction, so continuing after a resume behaves
+        exactly like a normal `think` session (plan.md §7).
+        """
         analyze = True
         first_turn = True
         had_capture_turn = False
@@ -331,8 +345,80 @@ class AppService:
         )
         return RecallResult(answer=synthesis.answer, memories=memories)
 
-    def resume(self, topic: str | None = None) -> Conversation:
-        raise NotImplementedError
+    def list_recent_topics(self, limit: int = 10) -> list[TopicSummary]:
+        """Distinct topics from conversations and memories, most recently touched first.
+
+        There's no topics table (plan.md §7) -- `topic` is a string label on
+        conversations/memories, so this derives the list by merging both
+        sources and taking the latest touch per label.
+        """
+        merged: dict[str, datetime] = {}
+        for topic, last_touched_at in (
+            *self._conversations.distinct_topics(),
+            *self._memories.distinct_topics(),
+        ):
+            if topic not in merged or last_touched_at > merged[topic]:
+                merged[topic] = last_touched_at
+
+        ordered = sorted(merged.items(), key=lambda item: item[1], reverse=True)
+        return [
+            TopicSummary(topic=topic, last_touched_at=last_touched_at)
+            for topic, last_touched_at in ordered[:limit]
+        ]
+
+    def resume(self, topic: str | None = None, *, voice: bool = False) -> Conversation:
+        """Reconstruct `topic` and hand off into the think loop (plan.md §5, §7).
+
+        Always opens a *new* conversation linked by topic -- a closed
+        conversation is never reopened. Callers (the CLI's topic picker /
+        fuzzy matcher) are expected to pass an exact, existing topic label;
+        `topic=None` falls back to the single most recently touched one.
+        """
+        if topic is None:
+            recent = self.list_recent_topics(limit=1)
+            if not recent:
+                raise HeyBrainError("No topics to resume yet -- try `brain think` first.")
+            topic = recent[0].topic
+
+        conversations = self._conversations.list_by_topic(topic)
+        summaries = [c.summary for c in conversations if c.summary]
+        memories = self._memory_retriever.retrieve_by_topic(topic)
+        open_tasks = self._tasks.list_open_by_topic(topic)
+
+        if not summaries and not memories and not open_tasks:
+            raise HeyBrainError(f"No topic found matching {topic!r}.")
+
+        system = continuation_prompt(
+            topic=topic,
+            summaries=summaries,
+            memories=[memory.content for memory in memories],
+            open_tasks=[task.title for task in open_tasks],
+        )
+        reconstruction = self._bedrock.structured(
+            [{"role": "user", "content": f"Reconstruct the topic '{topic}' so we can continue."}],
+            system,
+            TopicReconstruction,
+            effort="medium",
+        )
+
+        reconstruction_text = reconstruction.summary
+        if reconstruction.open_threads:
+            threads = "\n".join(f"- {thread}" for thread in reconstruction.open_threads)
+            reconstruction_text = f"{reconstruction_text}\n\n{threads}"
+
+        conversation = self._conversations.create(
+            Conversation(topic=topic, title=f"Resuming: {topic}")
+        )
+        self._messages.create(
+            Message(
+                conversation_id=conversation.id,
+                role=Role.ASSISTANT,
+                content=reconstruction_text,
+            )
+        )
+        self._output(reconstruction_text)
+
+        return self._converse(conversation, None, voice=voice)
 
     def list_conversations(self) -> list[Conversation]:
         return self._conversations.list_recent()

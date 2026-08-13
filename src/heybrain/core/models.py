@@ -113,6 +113,17 @@ class RecallResult(BaseModel):
     memories: list[Memory] = Field(default_factory=list)
 
 
+class TopicSummary(BaseModel):
+    """A distinct topic label derived from conversations/memories (plan.md §7).
+
+    Not a stored row -- there is no topics table. `resume` and its CLI
+    picker use this to show what's available to pick back up.
+    """
+
+    topic: str
+    last_touched_at: datetime
+
+
 class UsageRecord(BaseModel):
     id: str = Field(default_factory=_new_id)
     request_id: str

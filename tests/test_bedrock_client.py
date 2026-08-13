@@ -115,12 +115,14 @@ def usage_repo(conn) -> UsageRepo:
 
 def _service(settings: Settings, usage_repo: UsageRepo, fake_client: FakeBotoClient) -> BedrockService:
     def chat_model_factory(model_id: str, effort: str, output_config: dict | None):
+        # `effort` is intentionally not forwarded as `reasoning_effort` --
+        # matching bedrock/client.py's real factory (plan.md §6.3): the
+        # configured chat model doesn't support reasoning-effort routing.
         kwargs: dict[str, Any] = dict(
             model_id=model_id,
             client=fake_client,
             bedrock_client=fake_client,
             max_tokens=bedrock_client.CHAT_MAX_TOKENS,
-            reasoning_effort=effort,
             timeout=bedrock_client.CHAT_TIMEOUT_SECONDS,
         )
         if output_config is not None:

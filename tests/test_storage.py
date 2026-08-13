@@ -12,6 +12,7 @@ from heybrain.core.models import (
     Reminder,
     Role,
     Task,
+    TaskStatus,
     UsageRecord,
 )
 from heybrain.storage.db import get_connection
@@ -38,7 +39,9 @@ def conn(db_path: Path) -> sqlite3.Connection:
 
 
 def _make_conversation(**overrides) -> Conversation:
-    return Conversation(title="t", summary="s", topic="topic", **overrides)
+    defaults = {"title": "t", "summary": "s", "topic": "topic"}
+    defaults.update(overrides)
+    return Conversation(**defaults)
 
 
 def test_conversation_repo_roundtrip(conn: sqlite3.Connection) -> None:
@@ -185,6 +188,62 @@ def test_memory_repo_list_by_topic(conn: sqlite3.Connection) -> None:
     assert [m.id for m in results] == [matching.id]
 
 
+def test_memory_repo_distinct_topics(conn: sqlite3.Connection) -> None:
+    conversation_repo = ConversationRepo(conn)
+    conversation = _make_conversation()
+    conversation_repo.create(conversation)
+
+    repo = MemoryRepo(conn)
+    older = Memory(
+        conversation_id=conversation.id,
+        memory_type=MemoryType.FACT,
+        content="older kafka fact",
+        topic="kafka",
+        importance=0.7,
+        created_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        updated_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+    )
+    newer = Memory(
+        conversation_id=conversation.id,
+        memory_type=MemoryType.FACT,
+        content="newer kafka fact",
+        topic="kafka",
+        importance=0.7,
+        created_at=datetime(2024, 6, 1, tzinfo=timezone.utc),
+        updated_at=datetime(2024, 6, 1, tzinfo=timezone.utc),
+    )
+    repo.create(older)
+    repo.create(newer)
+
+    topics = dict(repo.distinct_topics())
+
+    assert topics["kafka"] == datetime(2024, 6, 1, tzinfo=timezone.utc)
+
+
+def test_conversation_repo_list_by_topic(conn: sqlite3.Connection) -> None:
+    repo = ConversationRepo(conn)
+    matching = _make_conversation(topic="kafka")
+    repo.create(matching)
+    other = _make_conversation(topic="other-topic")
+    repo.create(other)
+
+    results = repo.list_by_topic("kafka")
+
+    assert [c.id for c in results] == [matching.id]
+
+
+def test_conversation_repo_distinct_topics_ignores_null_topic(conn: sqlite3.Connection) -> None:
+    repo = ConversationRepo(conn)
+    repo.create(_make_conversation(topic="kafka"))
+    repo.create(_make_conversation(topic=None))
+
+    topics = dict(repo.distinct_topics())
+
+    assert "kafka" in topics
+    assert None not in topics
+    assert len(topics) == 1
+
+
 def test_task_repo_roundtrip(conn: sqlite3.Connection) -> None:
     conversation_repo = ConversationRepo(conn)
     conversation = _make_conversation()
@@ -196,6 +255,28 @@ def test_task_repo_roundtrip(conn: sqlite3.Connection) -> None:
     fetched = repo.get(original.id)
 
     assert fetched == original
+
+
+def test_task_repo_list_open_by_topic(conn: sqlite3.Connection) -> None:
+    conversation_repo = ConversationRepo(conn)
+    kafka_conversation = conversation_repo.create(_make_conversation(topic="kafka"))
+    other_conversation = conversation_repo.create(_make_conversation(topic="other-topic"))
+
+    repo = TaskRepo(conn)
+    open_task = Task(conversation_id=kafka_conversation.id, title="read the docs")
+    repo.create(open_task)
+    completed_task = Task(
+        conversation_id=kafka_conversation.id,
+        title="already done",
+        status=TaskStatus.COMPLETED,
+    )
+    repo.create(completed_task)
+    other_topic_task = Task(conversation_id=other_conversation.id, title="unrelated")
+    repo.create(other_topic_task)
+
+    results = repo.list_open_by_topic("kafka")
+
+    assert [t.id for t in results] == [open_task.id]
 
 
 def test_reminder_repo_roundtrip(conn: sqlite3.Connection) -> None:

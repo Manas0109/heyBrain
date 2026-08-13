@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     aws_region: str = "us-east-1"
-    aws_profile: str = "default"
+    aws_profile: str | None = None
 
     bedrock_model_id: str = "anthropic.claude-opus-5"
     bedrock_fast_model_id: str = "anthropic.claude-haiku-4-5"

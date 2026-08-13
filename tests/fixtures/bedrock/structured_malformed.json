@@ -1,0 +1,14 @@
+{
+  "ResponseMetadata": {"RequestId": "req-struct-bad-001", "HTTPStatusCode": 200},
+  "output": {
+    "message": {
+      "role": "assistant",
+      "content": [
+        {"text": "Sure! Here's the analysis: {\"title\": \"oops\"} — not quite valid JSON against the schema."}
+      ]
+    }
+  },
+  "stopReason": "end_turn",
+  "usage": {"inputTokens": 100, "outputTokens": 40, "totalTokens": 140},
+  "metrics": {"latencyMs": 700}
+}

@@ -1,0 +1,14 @@
+{
+  "ResponseMetadata": {"RequestId": "req-struct-bad-002", "HTTPStatusCode": 200},
+  "output": {
+    "message": {
+      "role": "assistant",
+      "content": [
+        {"text": "I'm sorry, I can't produce that right now."}
+      ]
+    }
+  },
+  "stopReason": "end_turn",
+  "usage": {"inputTokens": 90, "outputTokens": 20, "totalTokens": 110},
+  "metrics": {"latencyMs": 350}
+}

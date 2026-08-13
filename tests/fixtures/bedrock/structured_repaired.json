@@ -1,0 +1,16 @@
+{
+  "ResponseMetadata": {"RequestId": "req-struct-repair-001", "HTTPStatusCode": 200},
+  "output": {
+    "message": {
+      "role": "assistant",
+      "content": [
+        {
+          "text": "{\"title\": \"Planning the Q3 roadmap\", \"summary\": \"Discussed prioritization for Q3.\", \"topic\": \"roadmap\", \"memory_candidates\": [], \"tasks\": []}"
+        }
+      ]
+    }
+  },
+  "stopReason": "end_turn",
+  "usage": {"inputTokens": 130, "outputTokens": 30, "totalTokens": 160},
+  "metrics": {"latencyMs": 400}
+}

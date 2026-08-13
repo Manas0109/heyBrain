@@ -1,0 +1,4 @@
+{
+  "ResponseMetadata": {"RequestId": "req-embed-001", "HTTPStatusCode": 200},
+  "body": {"embedding": [0.011, -0.023, 0.045, 0.007], "inputTextTokenCount": 6}
+}

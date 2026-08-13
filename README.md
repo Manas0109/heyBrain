@@ -175,25 +175,6 @@ verification script, not part of the automated test suite (same idea as
 scripts/demo.sh
 ```
 
-## Running in Docker
-
-A `Dockerfile` is included for the **text-based CLI flows only**:
-`brain think "some text"`, `brain recall`, `brain remember`, `brain resume`,
-`brain list`, `brain show`, `brain reminders list`/`tick` (storage only),
-plus the automated test suite. Voice capture and native reminder
-notifications are macOS-specific and do not work inside the container.
-
-```bash
-docker build -t heybrain .
-
-docker run --rm -it \
-  -v heybrain-data:/root/.heybrain \
-  -e AWS_REGION=us-east-1 \
-  -e AWS_ACCESS_KEY_ID \
-  -e AWS_SECRET_ACCESS_KEY \
-  heybrain think "some thought"
-```
-
 ## Testing
 
 ```bash
@@ -203,6 +184,70 @@ pytest
 Bedrock is mocked everywhere in the automated test suite — no test hits
 AWS. `scripts/demo.sh` and `scripts/bedrock_smoke.py` are the manual,
 real-Bedrock smoke tests; run them by hand before a live demo.
+
+## Running in Docker
+
+The included `Dockerfile` packages the **text-based CLI flows only**:
+`brain think "some text"`, `brain recall`, `brain remember`, `brain resume`,
+`brain list`, `brain show`, `brain reminders list`/`tick` (storage only —
+see the limitation below), plus the automated test suite.
+
+**Voice capture and reminder notifications do not work in the container.**
+Both are macOS-specific per `plan.md` §0/§10/§11:
+
+- `brain think` voice mode needs `sounddevice` to talk to a real microphone.
+  Containers have no audio device passthrough in the general case, and this
+  image does not attempt one — use `brain think "text"` instead.
+- Reminder delivery relies on `launchd` + `osascript` to fire a macOS
+  notification banner. `brain reminders tick` will still update reminder
+  rows in SQLite from inside the container, but no notification can appear
+  from Linux — that piece only works run natively on macOS.
+
+Build the image:
+
+```bash
+docker build -t heybrain .
+```
+
+Run it, mounting a persistent volume for `$HEYBRAIN_HOME` (SQLite +
+Chroma live there and must survive container restarts) and passing AWS
+credentials via environment variables — never baked into the image:
+
+```bash
+docker run --rm -it \
+  -v heybrain-data:/root/.heybrain \
+  -e AWS_REGION=us-east-1 \
+  -e AWS_ACCESS_KEY_ID \
+  -e AWS_SECRET_ACCESS_KEY \
+  -e BEDROCK_MODEL_ID=anthropic.claude-opus-5 \
+  -e BEDROCK_FAST_MODEL_ID=anthropic.claude-haiku-4-5 \
+  -e BEDROCK_EMBEDDING_MODEL_ID=amazon.titan-embed-text-v2:0 \
+  heybrain think "some thought"
+```
+
+Or mount `~/.aws` read-only instead of passing keys, if you use a named
+profile (also set `AWS_PROFILE` to match):
+
+```bash
+docker run --rm -it \
+  -v heybrain-data:/root/.heybrain \
+  -v ~/.aws:/root/.aws:ro \
+  -e AWS_PROFILE=default \
+  -e AWS_REGION=us-east-1 \
+  heybrain recall "what was I thinking about coding agents?"
+```
+
+Run the test suite in the container instead of the CLI:
+
+```bash
+docker run --rm --entrypoint pytest heybrain -q
+```
+
+The `faster-whisper` model is **not** baked into the image — it stays
+lean, and since there's no mic in the container this dependency goes
+unused there anyway. If you do exercise transcription code paths inside
+the container, the model downloads once into the mounted volume on first
+use rather than being pre-warmed at build time.
 
 ## Built with Agent Orchestrator (AO)
 

@@ -82,6 +82,25 @@ class ConversationRepo:
         ).fetchall()
         return [self._to_model(row) for row in rows]
 
+    def list_by_topic(self, topic: str) -> list[Conversation]:
+        rows = self._conn.execute(
+            "SELECT * FROM conversations WHERE topic = ? ORDER BY created_at ASC",
+            (topic,),
+        ).fetchall()
+        return [self._to_model(row) for row in rows]
+
+    def distinct_topics(self) -> list[tuple[str, datetime]]:
+        """Distinct non-null topic labels with their most recent touch (`resume`, issue #12)."""
+        rows = self._conn.execute(
+            """
+            SELECT topic, MAX(updated_at) AS last_touched_at
+            FROM conversations
+            WHERE topic IS NOT NULL
+            GROUP BY topic
+            """
+        ).fetchall()
+        return [(row["topic"], _dt(row["last_touched_at"])) for row in rows]
+
     @staticmethod
     def _to_model(row: sqlite3.Row) -> Conversation:
         return Conversation(
@@ -224,6 +243,17 @@ class MemoryRepo:
         ).fetchall()
         return [self._to_model(row) for row in rows]
 
+    def distinct_topics(self) -> list[tuple[str, datetime]]:
+        """Distinct topic labels with their most recent touch (`resume`, issue #12)."""
+        rows = self._conn.execute(
+            """
+            SELECT topic, MAX(created_at) AS last_touched_at
+            FROM memories
+            GROUP BY topic
+            """
+        ).fetchall()
+        return [(row["topic"], _dt(row["last_touched_at"])) for row in rows]
+
     @staticmethod
     def _to_model(row: sqlite3.Row) -> Memory:
         return Memory(
@@ -297,6 +327,19 @@ class TaskRepo:
         rows = self._conn.execute(
             "SELECT * FROM tasks WHERE conversation_id = ? ORDER BY created_at ASC",
             (conversation_id,),
+        ).fetchall()
+        return [self._to_model(row) for row in rows]
+
+    def list_open_by_topic(self, topic: str) -> list[Task]:
+        """Open tasks for `topic`, via its conversations (tasks carry no topic of their own)."""
+        rows = self._conn.execute(
+            """
+            SELECT tasks.* FROM tasks
+            JOIN conversations ON tasks.conversation_id = conversations.id
+            WHERE conversations.topic = ? AND tasks.status = 'open'
+            ORDER BY tasks.created_at ASC
+            """,
+            (topic,),
         ).fetchall()
         return [self._to_model(row) for row in rows]
 

@@ -9,6 +9,7 @@ import typer
 
 from heybrain.cli import recall as recall_cli
 from heybrain.cli import remember as remember_cli
+from heybrain.cli import resume as resume_cli
 from heybrain.cli import think as think_cli
 from heybrain.core.errors import HeyBrainError
 from heybrain.core.service import AppService
@@ -44,9 +45,12 @@ def recall(query: str) -> None:
 
 
 @app.command()
-def resume(topic: str = typer.Argument(None)) -> None:
+def resume(
+    topic: str = typer.Argument(None),
+    voice: bool = typer.Option(False, "--voice", help="Speak instead of typing."),
+) -> None:
     """List recent topics, reconstruct, continue."""
-    _not_implemented("resume")
+    resume_cli.run(topic, voice)
 
 
 @app.command(name="list")

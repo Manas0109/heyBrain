@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Callable, ContextManager
 
-from heybrain.audio.record import record_until_enter
+from heybrain.audio.record import VoiceRecordSession
 from heybrain.bedrock.client import BedrockService
 from heybrain.bedrock.prompts import (
     continuation_prompt,
@@ -188,24 +188,33 @@ class AppService:
         first_turn = True
         had_capture_turn = False
 
+        # One mic stream for the whole session (opened lazily on the first
+        # voice turn), not one per turn -- see VoiceRecordSession's
+        # docstring for why repeated open/close was hanging on macOS.
+        voice_session = VoiceRecordSession() if voice else None
+
         try:
-            while True:
-                if first_turn and text is not None:
-                    user_text = text
-                else:
-                    user_text = self._next_input(voice)
-                first_turn = False
+            try:
+                while True:
+                    if first_turn and text is not None:
+                        user_text = text
+                    else:
+                        user_text = self._next_input(voice, voice_session)
+                    first_turn = False
 
-                stripped = user_text.strip()
-                if not stripped or stripped.lower() in _EXIT_WORDS:
-                    break
+                    stripped = user_text.strip()
+                    if not stripped or stripped.lower() in _EXIT_WORDS:
+                        break
 
-                intent = self._run_turn(conversation, stripped)
-                if intent == Intent.CAPTURE:
-                    had_capture_turn = True
-        except (KeyboardInterrupt, EOFError):
-            analyze = False
-            self._output("\nSaving conversation and exiting.")
+                    intent = self._run_turn(conversation, stripped)
+                    if intent == Intent.CAPTURE:
+                        had_capture_turn = True
+            except (KeyboardInterrupt, EOFError):
+                analyze = False
+                self._output("\nSaving conversation and exiting.")
+        finally:
+            if voice_session is not None:
+                voice_session.close()
 
         conversation = self._close_conversation(conversation, analyze=analyze)
 
@@ -217,10 +226,11 @@ class AppService:
 
         return conversation
 
-    def _next_input(self, voice: bool) -> str:
+    def _next_input(self, voice: bool, voice_session: VoiceRecordSession | None) -> str:
         if voice:
+            assert voice_session is not None
             try:
-                path = record_until_enter()
+                path = voice_session.record_turn()
                 with self._spinner_fn("Transcribing…"):
                     return transcribe(path)
             except TranscriptionError as exc:

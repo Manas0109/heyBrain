@@ -6,17 +6,11 @@ only echoes confirmation back to the user.
 
 from __future__ import annotations
 
-import typer
-
-from heybrain.core.errors import HeyBrainError
+from heybrain.cli import render
 from heybrain.core.service import AppService
 
 
 def run(text: str) -> None:
-    service = AppService()
-    try:
-        memory = service.remember(text)
-    except HeyBrainError as exc:
-        typer.echo(f"Error: {exc}")
-        raise typer.Exit(code=1)
-    typer.echo(f"Remembered ({memory.memory_type.value}): {memory.content}")
+    service = AppService(spinner_fn=render.spinner)
+    memory = service.remember(text)
+    render.print_remembered(memory)

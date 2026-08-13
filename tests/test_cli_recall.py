@@ -73,7 +73,7 @@ def test_cli_recall_command_renders_answer_and_sources(
 
     monkeypatch.setattr(
         "heybrain.cli.recall.AppService",
-        lambda: AppService(
+        lambda **_: AppService(
             conn=conn, settings=settings, vector_store=vector_store, bedrock=bedrock
         ),
     )
@@ -95,7 +95,7 @@ def test_cli_recall_command_empty_store_is_honest(
 
     monkeypatch.setattr(
         "heybrain.cli.recall.AppService",
-        lambda: AppService(
+        lambda **_: AppService(
             conn=conn, settings=settings, vector_store=vector_store, bedrock=bedrock
         ),
     )

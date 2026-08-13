@@ -211,7 +211,7 @@ def test_cli_remember_command(settings, conn, vector_store, monkeypatch) -> None
 
     monkeypatch.setattr(
         "heybrain.cli.remember.AppService",
-        lambda: AppService(
+        lambda **_: AppService(
             conn=conn, settings=settings, vector_store=vector_store, bedrock=bedrock
         ),
     )

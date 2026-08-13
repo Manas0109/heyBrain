@@ -36,31 +36,6 @@ time, in dependency order, with a review checkpoint before any code is written.
    dependencies before starting it, since a prior issue may have shifted
    scope during review.
 
-## Ordering (sequential, per ISSUES.md dependency graph)
-
-```
-#1  Contracts, scaffold, config          (blocks everything — alone)
-#2  SQLite storage layer
-#3  BedrockService                       (highest external risk — verify Bedrock
-                                           model access in console before this one)
-#4  Prompt library and eval set
-#5  Audio capture and transcription
-#6  brain doctor
-#7  brain think (conversation flow)      — first integration point
-#8  Chroma vector store wrapper
-#9  Memory write path (extraction/dedup) — hardest issue, don't rush review
-#10 Memory read path (retrieval/ranking)
-#11 brain recall / brain remember
-#12 brain resume
-#13 Reminders                            (stretch — first to cut if time is short)
-#14 Terminal presentation + demo script  (stretch — final assembly)
-```
-
-Even though ISSUES.md marks several of these "parallel" (#4/#5 vs #2/#3, #8
-vs #7, etc.), we're running one at a time by choice — simpler to review each
-plan with you before moving on. If we later want to reclaim that parallelism,
-the fix is running independent streams in separate git worktrees, not doing
-more without a checkpoint.
 
 ## Standing rules for every issue
 
